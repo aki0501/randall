@@ -1,0 +1,627 @@
+CS 35L Assignment 5
+Aki Hasegawa-Johnson
+305823171
+
+1. Downloading and Unpacking the Tarball --------------------------------------
+
+First, I downloaded 'randall-git.tgz' onto my local computer.
+I then used CyberDuck to move it to the remote server-- lnxsrv11.
+
+
+2. Cloning the Repository -----------------------------------------------------
+
+Next, I moved my tarball to a folder I created called "Assignment5"
+and unpacked it using:
+$ tar -xvf randall-git.tgz
+This output a hidden '.git' folder in the current directory. I then cloned
+the repository by running:
+$ git clone .git randall
+This created a subdirectory called 'randall' and placed my copy of the repository
+into it.
+
+
+3. Working on 'notes.txt' -----------------------------------------------------
+
+I then created a file called 'notes.txt' in my repository and, in order for it to
+be tracked by git, I ran:
+$ git add notes.txt
+$ git commit -m "Added notes.txt"
+As I continue with this assignment, I'll keep updating notes.txt with my progress,
+and run the following commands in order to commit my changes to the file:
+$ git add notes.txt
+$ git commit -m "Updated notes.txt"
+
+
+4. Reading and understanding the source code ----------------------------------
+
+Next, I read through the files 'randall.c' and 'Makefile' and looked up any code
+I didn't understand.
+
+
+5. Adding tests to the Makefile -----------------------------------------------
+
+Next, I implemented a 'check' target in the makefile in order to test the 'randall'
+program. I checked that, when passed an input of NBYTES, ./randall will output
+that number of bytes. The idea was to use shell commands like the following:
+
+$ ./randall 10 | wc -c | [[ "$(cat)" == "10" ]]
+
+This command, when run in shell, would run the program 'randall' and pass in
+10 as an argument. This is asking 'randall' to output 10 random bytes. The
+command would then feed randall's output to 'wc -c', which would count the
+number of bytes of output. This number would then be piped into shell's
+[[...]] operators, which check to see if the enclosed statement is true.
+In this case, the statement I checked was whether the output of 'wc' was
+equal to 10 (the desired output).
+
+In order for this test to work within make, I needed to use an extra '$' before
+'$(cat)' in order to escape the special '$' character in make. Thus, my check
+target ended up looking like this:
+
+check: randall
+	./randall 10 | wc -c | [[ "$$(cat)" == "10" ]]
+	./randall 0 | wc -c | [[ "$$(cat)" == "0" ]]
+	./randall 1 | wc -c | [[ "$$(cat)" == "1" ]]
+
+By running 'make check' in terminal, I could now see if any errors arose from
+running these tests. Since the program is correct, no errors occurred. Thus,
+when I ran
+
+$ echo $?
+
+in terminal, it outputted '0', indicating that no errors occurred when running
+the previous command, 'make check'.
+
+
+6. Modularizing 'randall.c' ---------------------------------------------------
+
+Next, I created files to separate the code in 'randall.c'.
+I put the software implementation into 'rand64-sw.c', and put any corresponding
+#include-s and function declarations into 'rand64-sw.h'. I put the hardware
+implementation into 'rand64-hw.c', and put any corresponding #include-s and function
+declarations into 'rand64-hw.h'. I also created the files 'options.c', 'options.h',
+'output.c', 'output.h' for later use.
+
+After moving the code into new files, I had to make sure that the #include-s
+were distributed correctly. There were several #include-s in the randall.c file
+initially:
+
+#include <errno.h>
+#include <immintrin.h>
+#include <limits.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <stdbool.h>
+#include <cpuid.h>
+
+I placed <cpuid.h> into the 'rand64-hw.h' file, and placed the following into the
+'rand64-sw.h' file:
+
+#include <limits.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <stdbool.h>
+
+I organized these #include-s based on what was necessary for the code in the
+corresponding '.c' files. I kept the following libraries in 'randall.c', since
+they are only used in that file:
+
+#include <errno.h>
+#include <immintrin.h>
+
+I also made sure to include the new header files into 'randall.c' as well:
+
+#include "options.h"
+#include "output.h"
+#include "rand64-hw.h"
+#include "rand64-sw.h"
+
+Next, I tried running 'make randall' and received a long list of errors,
+some of which looked like the following:
+
+In file included from randall.c:36:
+rand64-hw.h:7:21: warning: 'cpuid' declared 'static' but never defined \
+[-Wunused-function]
+    7 | static struct cpuid cpuid (unsigned int leaf, unsigned int subleaf);
+      |                     ^~~~~
+/tmp/ccyZ4486.o: In function `main':
+/u/eng/class/classaha/CS35L/Assignment5/randall/randall.c:71: undefined \
+reference to `rdrand_supported'
+
+From this, I realized that I hadn't made any changes to the Makefile. Now that
+more files were contributing to the randall program, I'd have to compile those
+files as well.
+
+Thus, in my makefile, I created an object containing all the source files to
+compile:
+
+OBJ = randall.c rand64-hw.c rand64-sw.c
+
+Then I passed in this object as a dependency to the 'randall' target:
+
+randall: $(OBJ)
+	$(CC) $(CFLAGS) $(OBJ) -o $@
+
+Then, when I ran 'make randall', the 'randall' program was created successfully.
+I ran 'make check' to test that modularization didn't affect the correctness of
+the program. It ran successfully.
+
+
+7. Adding the '-i' flag: Learning how to use getopt() -------------------------
+
+First, I read into getopt(). I knew that this function would be useful.
+
+I put this into options.c:
+
+#include "options.h"
+
+void check_options( int argc, char **argv )
+{
+    int opt;
+    char *input = NULL;
+
+    while((opt = getopt(argc, argv, "i:")) != -1)
+    {
+        switch(opt)
+        {
+        case 'i':
+            input = optarg;
+            printf("option -i with argument '%s'\n", optarg);
+
+            if (strcmp(input, "something") == 0) {
+                fprintf(stderr, "WOOOOO!");
+            }
+            else {
+                fprintf(stderr, "YEEHAW!");
+            }
+
+            break;
+        case '?':
+            fprintf(stderr, "Needs trailing argument");
+            break;
+        }
+    }
+}
+
+I did this in order to test getopt() and make sure I understood it. I ran
+several tests on the command line; when I ran './randall 10 -i something',
+I would get an output of 'WOOOOO!'. When I ran './randall 10 -i somethingelse',
+I would get the output 'YEEHAW!' When I ran './randall -10 -i', without passing in a
+trailing argument after the option flag, I would receive the output 'Needs trailing
+argument'. By doing this testing, I could see which if statements were triggered
+depending on which arguments I passed in after the -i flag. This helped me understand
+getopt() and its syntax.
+
+Now that I knew getopt() could recognize when I passed in the -i flag and a
+trailing argument, and I knew that getopt() knew what that trailing argument was,
+I wanted to make sure that the program still worked with these extra arguments added.
+I noticed that there was an argument checking section in main() that checked if the
+number of arguments passed in was equal to 2. Without modifying this section, when I
+passed in flags to 'randall', the program didn't not work.
+
+Instead of working within the main() program, I chose to move the argument processing
+section to 'options.c'. Within options.c, I added the argument processing that was
+initially in main():
+
+/* Check arguments.  */
+    if (argc >= 2)
+    {
+        char *endptr;
+        errno = 0;
+        opts->nbytes = strtoll (argv[1], &endptr, 10);
+        if (errno)
+        perror (argv[1]);
+        else
+        valid = !*endptr && 0 <= opts->nbytes;
+    }
+     /* Check validity of arguments and options. */
+    if (!valid)
+    {
+        fprintf (stderr, "%s: usage: %s NBYTES\n", argv[0], argv[0]);
+        exit(1);
+    }
+
+However, I used (argc >= 2) instead of (argc == 2) in case the user passes in the option
+flags and trailing arguments.
+
+After doing this, the program worked with the extra arguments passed in; random bytes
+were generated.
+
+
+8. Adding the '-i' flag: Creating a structure ---------------------------------
+
+I knew that my program would have to act in different ways depending on which
+trailing argument was passed in after the -i flag. There was also a default option
+I needed to be aware of; the program would default to 'rdrand' as its random
+number generator if no -i flag was specified.
+
+I knew that getopt() could get this information for me, but I needed to have a way
+of sending this information to my main() program so it could do work with it.
+
+First, I tried using a bool:
+
+bool used_rdrand = false;
+  if (use_rdrand) {
+    if (rdrand_supported ()) {
+      // let's use rdrand!
+      initialize = hardware_rand64_init;
+      rand64 = hardware_rand64;
+      finalize = hardware_rand64_fini;
+      used_rdrand = true;
+    }
+    else {
+      // rdrand is not supported
+      abort(); // or something
+    }
+  }
+
+  if (used_rdrand) {
+    printf("YAY!");
+  }
+
+This approach ended up being messy, so I decided to create a struct to hold the
+value of the passed in argument after the -i flag instead:
+
+struct options {
+    long long nbytes;
+    char *iflag;
+    bool valid;
+};
+
+I placed the declaration into my 'options.h' file. Then, in main(), I defined
+an instance of the struct:
+
+ /* Collect data about passed in arguments.  */
+  struct options opts = {
+    .valid = false,
+    .iflag = "rdrand",
+  };
+
+Then, in my 'options.c' file, I included a section to set the iflag member of the
+struct equal to the argument trailing the -i flag:
+
+ case 'i':
+            {
+                opts->iflag = optarg;
+                fprintf(stderr, "option -i with argument '%s'\n", optarg);
+
+                if (!(strcmp(opts->iflag, "mrand48_r") == 0) &&
+                    !(strcmp(opts->iflag, "rdrand") == 0) &&
+                    !(*(opts->iflag) == '/')) {
+                    valid = false;
+                }
+                break;
+            }
+
+I also stored information about whether or not the passed in argument was valid
+in a bool member of the struct. I then checked this later in the 'options.c' file:
+
+/* Check validity of arguments and options. */
+    if (!valid)
+    {
+        fprintf (stderr, "%s: usage: %s NBYTES\n", argv[0], argv[0]);
+        exit(1);
+    }
+}
+
+Within 'randall.c', I called the function I created in 'options.c':
+
+  parse_options( argc, argv, &opts );
+
+After this, I knew that the struct I had passed into the function would be modified,
+and the iflag member would be set to the appropriate argument. Then, I could check
+the value of the iflag with a series of 'if' statements, and depending on which
+argument was passed in after the -i flag, I could either use the hardware rng,
+mrand48_r rng, or software rng:
+
+/* Check input for -i flag (default=rdrand for no -i flag).  */
+  if (strcmp(opts.iflag, "mrand48_r") == 0) {
+    fprintf(stderr, "Use mrand48_r");
+  }
+  else if (strcmp(opts.iflag, "rdrand") == 0) {
+    if (rdrand_supported ()) {
+      /* Use rdrand! */
+      fprintf(stderr, "Use rdrand");
+    }
+    else {
+      /* rdrand is not supported */
+      fprintf(stderr, "rdrand not supported!");
+      exit(1);
+    }
+  }
+  else {
+    /* User passed in a file as an argument */
+    fprintf(stderr, "User passed in file");
+  }
+
+By running some tests on the command line, I could see whether my printf statements
+were getting called when I needed them to be.
+
+
+9. Adding the '-i' flag: Writing the mrand48_r functions ----------------------
+
+Next, I had to implement the mrand48_rng functions. I decided to create a separate
+'.c' and '.h' file for this. After doing some research on mrand48_r, I learned that
+I could call the mrand48_r function from the standard C library, but I would need to
+cast its result to an unsigned long long int. Thus, I implemented the following within
+my mrand48_rng function in 'mrand48_r.c':
+
+unsigned long long
+mrand48_rng (void)
+{
+    struct drand48_data buf = {0};
+    long int a;
+    int seed = time(NULL);
+
+    srand48_r(seed, &buf);
+    mrand48_r(&buf, &a);
+
+    unsigned long long casted = (unsigned long long)a;
+    return casted;
+}
+
+'mrand48_rng_init()' and 'mrand48_rng_fini()' wouldn't need any implementation
+because there was nothing to be done to initialize or finalize the call to mrand48_rng().
+
+
+9. Adding the '-i' flag: Adding file input functionality ----------------------
+
+In order to add file input functionality, I changed the intializer function for the
+software rng to take in a string argument. Then, I passed in the trailing argument after
+the -i flag (if it was valid) to the initializer function. Then, within the init function,
+I passed in the passed in argument as the file to open, rather than '/dev/random' which it
+had previously been set as:
+
+/* Initialize the software rand64 implementation.  */
+void
+software_rand64_init (char* input)
+{
+  urandstream = fopen (input, "r");
+  if (! urandstream)
+    abort ();
+}
+
+When I tried to make the program after this, I received the following error:
+
+bash-4.4$ make randall
+gcc  -g3 -Wall -Wextra -fanalyzer -march=native -mtune=native -mrdrnd randall.c \
+options.c output.c rand64-hw.c rand64-sw.c mrand48_r.c -o randall
+randall.c: In function 'main':
+randall.c:72:16: warning: assignment to 'void (*)(void)' from incompatible pointer \
+type 'void (*)(char *)' [-Wincompatible-pointer-types]
+   72 |     initialize = software_rand64_init;
+      |
+
+After some searching, I noticed that in main(), the following code was causing the error:
+
+  void (*initialize) (void);
+  ...
+  initialize = software_rand64_init;
+
+The purpose of the initialize() function was to point at the correct init function to run,
+(either hardware, software, or mrand48_r) depending on what trailing argument was passed
+in after the -i flag. Since my init functions now took in different types of arguments,
+(two void and one string), I decided to remove this initialize() function pointer, and
+call my initializer functions directly when appropriate. This fixed the bug.
+
+
+10. Adding the '-o' flag: -----------------------------------------------------
+
+First, I knew that I'd have to store the value of the trailing argument
+after the -o flag. Thus, I made a member of the options struct store that value:
+
+struct options {
+    long long nbytes;
+    char *iflag;
+    char *oflag;
+    bool valid;
+};
+
+In main(), I set its default value when declaring an instance of the struct to
+the default 'stdio':
+
+  /* Collect data about passed in arguments.  */
+  struct options opts = {
+    .valid = false,
+    .iflag = "rdrand",
+    .oflag = "stdio"
+  };
+
+
+Next, I knew I'd have to then check the -o argument and act according to what
+was passed in. I created some trailing 'if' statements in my main() to do so:
+
+/* Check input for -o flag (default=stdio for no -o flag).  */
+  if (strcmp(opts.oflag, "stdio") == 0) {
+    // do the normal stuff
+  }
+  else {
+    // it's a number... do different stuff
+  }
+
+This outline is making the assumption that if the argument is not 'stdio',
+then it is a positive decimal integer N. I'll have to check for the validity
+of the argument within 'options.c'. I can do so like this:
+
+  case 'o':
+  {
+      /* If -o trailing argument is not 'stdio', check that it is valid.  */
+      if (!(strcmp(optarg, "stdio") == 0)) {
+          char *endptr;
+          long long temp;
+          errno = 0;
+          temp = strtoll (optarg, &endptr, 10);
+          if (errno)
+          perror (optarg);
+          else
+          valid = !*endptr && 0 < temp;
+
+          if (valid) {
+              opts->N = temp;
+          }
+          else {
+              fprintf(stderr, "oflag, you are not valid\n");
+          }
+      }
+      break;
+  }
+
+This checks if optarg is valid if it is not equal to 'stdio'. 'optarg' is valid if
+it is a string that can be converted to a long long int. For example, if
+'123sfbff' or '-10' were passed in after the -o flag, these would be invalid and the
+script would catch this. I tested this on the command line, and when passed bad
+arguments, the script would output "oflag, you are not valid".
+
+With getopt() recognizing the -o flag and processing its trailing
+argument correctly, I then began to work on the next part: integrating the syscall
+write() into my program. I knew that this would have to be called under the condition
+where -o N (for some positive decimal integer N) was passed as an argument.
+
+In order to do this, I decided to create a new function called write_N_bytes(),
+which would create a buffer of size nbytes, and loop through the buffer, printing
+it in N-sized chunks using calls to write(). First, I created the buffer:
+
+int *buf = malloc(nbytes);
+
+  if (buf != NULL) {
+    /* Put nbytes random bytes into buf */
+    unsigned long long x;
+    for (int i = 0; i < nbytes; i++) {
+      if (i % 8 == 0) {
+        x = rand64(); // 8 bytes
+      }
+      buf[i] = (x >> (8 * i)) & 0xff;
+    }
+    int bytes_written = 0;
+
+Next, I looped through and made sys calls to write().
+
+do
+{
+  /* Write N bytes from buf to stdout */
+  int num_bytes_to_write = nbytes < N + bytes_written ? nbytes - bytes_written : N;
+  int curr_bytes = write(1, buf + bytes_written, num_bytes_to_write);
+
+  if (curr_bytes < 0) {
+    perror("write");
+    free(buf);
+    return false;
+  }
+  bytes_written += curr_bytes;
+} while (bytes_written < nbytes);
+
+free(buf);
+return true;
+
+I made sure to free any storage that I had allocated using malloc().
+
+After integrating this into the larger program, I ran more tests on the command line.
+I also added more tests to my makefile check target.
+
+
+10. Last Round of Debugging -----------------------------------------------------
+
+I realized that when I didn't pass in an NBYTES argument to my program, it was causing
+a segmentation fault. I had to go back into 'options.c' in order to handle the case
+where NBYTES was undefined. I modified the argument checking portion by adding the
+following:
+
+if (argv[optind] == NULL) {
+  valid = false;
+}
+
+I placed this in the section of my code that came after the option processing. This
+allowed me to assume that all options flags and their corresponding arguments had
+already been processed, so argv[optind] should be pointing to NBYTES. Thus, if it
+was NULL, then NBYTES hadn't been passed in, so the program should throw an error.
+By setting the bool 'valid' to false, later in the program, an error message would be
+outputted and the program would exit with error status 1.
+
+After adding these changes, my program would throw an error when NBYTES wasn't passed
+in as an argument, as it was supposed to.
+
+
+11. Timing the Program --------------------------------------------------------
+
+First, I ran the sanity check:
+
+$ time dd if=/dev/urandom ibs=8192 obs=8192 count=16384 >/dev/null
+16384+0 records in
+16384+0 records out
+134217728 bytes (134 MB, 128 MiB) copied, 0.912369 s, 147 MB/s
+
+real    0m0.922s
+user    0m0.019s
+sys     0m0.899s
+
+
+Next, I timed randall when its output was sent to /dev/null via file
+redirection. I noticed that generating random numbers from /dev/random
+was significantly slower than using /dev/urandom. After searching online,
+I found that this may be because /dev/random is 'more random' than
+/dev/urandom; it takes extra steps to increase randomness. I also noticed
+that using mrand48_r gave me random data the fastest. The next fastest
+tended to be taking random data from /dev/urandom, followed by the default
+rdrand. Here are the results of timing the program for each command:
+
+$ time ./randall 133562368 >/dev/null
+real    0m3.938s
+user    0m3.895s
+sys     0m0.026s
+
+$ time ./randall 133562368 -i /dev/urandom  >/dev/null
+real    0m2.591s
+user    0m1.626s
+sys     0m0.945s
+
+$ time ./randall 133562368 -i mrand48_r  >/dev/null
+real    0m1.545s
+user    0m1.516s
+sys     0m0.023s
+
+$ time ./randall 133562368 -i /dev/random  >/dev/null
+real    1m35.060s
+user    0m2.672s
+sys     1m6.939s
+
+
+$ time ./randall 133562368 | cat >/dev/null
+real    0m4.104s
+user    0m3.969s
+sys     0m0.290s
+
+$ time ./randall 133562368 -i /dev/urandom | cat >/dev/null
+real    0m2.687s
+user    0m1.706s
+sys     0m1.137s
+
+$ time ./randall 133562368 -i mrand48_r | cat >/dev/null
+real    0m1.657s
+user    0m1.568s
+sys     0m0.254s
+
+4$ time ./randall 133562368 -i /dev/random | cat >/dev/null
+real    1m34.788s
+user    0m2.611s
+sys     1m7.364s
+
+
+$ time ./randall 133562368 >rand.data
+real    0m4.222s
+user    0m3.884s
+sys     0m0.237s
+
+$ time ./randall 133562368 -i /dev/urandom >rand.data
+real    0m2.690s
+user    0m1.636s
+sys     0m1.037s
+
+$ time ./randall 133562368 -i mrand48_r >rand.data
+real    0m1.745s
+user    0m1.506s
+sys     0m0.156s
+
+$ time ./randall 133562368 -i /dev/random >rand.data
+real    1m35.984s
+user    0m2.822s
+sys     1m7.342s
